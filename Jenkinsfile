@@ -1,23 +1,39 @@
+
 pipeline {
     agent any
 
+    tools {
+        maven 'maven-3.10.0'
+    }
+
     stages {
+
         stage('Build') {
             steps {
-                echo 'Building the application...'
+                echo 'Building Java application...'
+                sh 'mvn clean compile'
             }
         }
 
         stage('Test') {
             steps {
-                echo 'Testing the application...'
+                echo 'Running application tests...'
+                sh 'mvn test'
             }
         }
 
-        stage('Deploy') {
+        stage('Package') {
             steps {
-                echo 'Deploying the application...'
+                echo 'Packaging application into JAR...'
+                sh 'mvn package'
             }
+        }
+    }
+
+    post {
+        success {
+            archiveArtifacts artifacts: 'target/*.jar'
+            echo 'Build completed successfully!'
         }
     }
 }
