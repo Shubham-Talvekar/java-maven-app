@@ -7,7 +7,7 @@ public class App {
     }
 
     public static void main(String[] args) {
-        System.out.println("Hello from Maven Jenkins Project!");
+        System.out.println("Hello from Maven Jenkins Project-2!");
 
         int result = add(10, 20);
 
