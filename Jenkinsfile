@@ -19,9 +19,6 @@ pipeline {
         IMAGE_NAME = "shubhamtalvekar/java-maven-app"
         IMAGE_TAG  = "${BUILD_NUMBER}-${params.VERSION}"
 
-        DOCKERHUB_CREDENTIALS = "dockerhub-creds"
-        SSH_CREDENTIALS       = "server-ssh-creds"
-
         DEPLOY_SERVER = "192.168.13.151"
     }
 
@@ -30,7 +27,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/shubhamtalvekar/hello-jenkins.git'
+                url: 'https://github.com/shubhamtalvekar/hello-jenkins.git'
             }
         }
 
@@ -55,9 +52,9 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh """
-                   docker build \
-                   -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                   -t ${IMAGE_NAME}:latest .
+                docker build \
+                -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                -t ${IMAGE_NAME}:latest .
                 """
             }
         }
@@ -66,7 +63,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: "${DOCKERHUB_CREDENTIALS}",
+                        credentialsId: 'dockerhub-credentials',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )
@@ -84,8 +81,8 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 sh """
-                   docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                   docker push ${IMAGE_NAME}:latest
+                docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${IMAGE_NAME}:latest
                 """
             }
         }
@@ -94,7 +91,7 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['server-ssh-creds']) {
+                sshagent(credentials: ['server-credentials']) {
 
                     sh """
                     ssh -o StrictHostKeyChecking=no root@${DEPLOY_SERVER} '
@@ -106,10 +103,10 @@ pipeline {
                     docker rm java-app || true
 
                     docker run -d \
-                        --name java-app \
-                        --restart unless-stopped \
-                        -p 8080:8080 \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
+                    --name java-app \
+                    --restart unless-stopped \
+                    -p 8080:8080 \
+                    ${IMAGE_NAME}:${IMAGE_TAG}
 
                     '
                     """
@@ -121,11 +118,11 @@ pipeline {
     post {
 
         success {
-            echo 'Deployment Successful'
+            echo 'Application Successfully Deployed'
         }
 
         failure {
-            echo 'Deployment Failed'
+            echo 'Application Deployment Failed'
         }
 
         always {
