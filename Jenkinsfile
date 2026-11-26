@@ -2,6 +2,7 @@ pipeline {
     agent any
 
     parameters {
+
         choice(
             name: 'VERSION',
             choices: ['1.1.0', '1.2.0', '1.3.0'],
@@ -21,8 +22,8 @@ pipeline {
     }
 
     environment {
-        DEPLOY_SERVER = '192.168.13.151'
-        DEPLOY_PATH   = '/opt/myapp'
+        IMAGE_NAME = 'shubhamtalvekar/java-maven-app'
+        IMAGE_TAG  = "${BUILD_NUMBER}-${params.VERSION}"
     }
 
     stages {
@@ -36,10 +37,11 @@ pipeline {
 
         stage('Build') {
             steps {
+
                 echo "Building version ${params.VERSION}"
 
                 sh '''
-                mvn clean package -DskipTests
+                    mvn clean package -DskipTests
                 '''
             }
         }
@@ -53,8 +55,11 @@ pipeline {
             }
 
             steps {
+
+                echo "Running Tests..."
+
                 sh '''
-                mvn test
+                    mvn test
                 '''
             }
         }
@@ -65,36 +70,55 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Build Docker Image') {
+            steps {
+
+                sh '''
+                    docker build \
+                    -t $IMAGE_NAME:$IMAGE_TAG \
+                    .
+                '''
+            }
+        }
+
+        stage('Docker Hub Login') {
 
             steps {
 
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'server-credentials',
-                        usernameVariable: 'DEPLOY_USER',
-                        passwordVariable: 'DEPLOY_PASSWORD'
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASSWORD'
                     )
                 ]) {
 
                     sh '''
-                    echo "Deploying to ${DEPLOY_SERVER}"
-
-                    JAR_FILE=$(ls target/*.jar | head -1)
-
-                    sshpass -p "$DEPLOY_PASSWORD" scp \
-                    -o StrictHostKeyChecking=no \
-                    "$JAR_FILE" \
-                    ${DEPLOY_USER}@${DEPLOY_SERVER}:${DEPLOY_PATH}/
-
-                    sshpass -p "$DEPLOY_PASSWORD" ssh \
-                    -o StrictHostKeyChecking=no \
-                    ${DEPLOY_USER}@${DEPLOY_SERVER} "
-                        echo 'Deployment completed'
-                        ls -ltr ${DEPLOY_PATH}
-                    "
+                        echo "$DOCKER_PASSWORD" | docker login \
+                        -u "$DOCKER_USER" \
+                        --password-stdin
                     '''
                 }
+            }
+        }
+
+        stage('Push Docker Image') {
+
+            steps {
+
+                sh '''
+                    docker push $IMAGE_NAME:$IMAGE_TAG
+                '''
+
+                sh '''
+                    docker tag \
+                    $IMAGE_NAME:$IMAGE_TAG \
+                    $IMAGE_NAME:latest
+                '''
+
+                sh '''
+                    docker push $IMAGE_NAME:latest
+                '''
             }
         }
     }
@@ -102,7 +126,7 @@ pipeline {
     post {
 
         success {
-            echo 'Pipeline completed successfully'
+            echo 'Docker image pushed successfully to Docker Hub'
         }
 
         failure {
