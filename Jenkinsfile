@@ -15,11 +15,9 @@ pipeline {
     }
 
     environment {
-
-        IMAGE_NAME = "shubhamtalvekar/java-maven-app"
-        IMAGE_TAG  = "${BUILD_NUMBER}-${params.VERSION}"
-
-        DEPLOY_SERVER = "192.168.13.151"
+        IMAGE_NAME = 'shubhamtalvekar/java-maven-app'
+        IMAGE_TAG = "${BUILD_NUMBER}-${params.VERSION}"
+        DEPLOY_SERVER = '192.168.13.151'
     }
 
     stages {
@@ -27,7 +25,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                url: 'https://github.com/Shubham-Talvekar/java-maven-app.git'
+                    url: 'https://github.com/shubhamtalvekar/hello-jenkins.git'
             }
         }
 
@@ -52,9 +50,9 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh """
-                docker build \
-                -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                -t ${IMAGE_NAME}:latest .
+                    docker build \
+                    -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                    -t ${IMAGE_NAME}:latest .
                 """
             }
         }
@@ -70,9 +68,9 @@ pipeline {
                 ]) {
 
                     sh '''
-                    echo "$DOCKER_PASS" | docker login \
-                    -u "$DOCKER_USER" \
-                    --password-stdin
+                        echo "$DOCKER_PASS" | docker login \
+                        -u "$DOCKER_USER" \
+                        --password-stdin
                     '''
                 }
             }
@@ -81,20 +79,27 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 sh """
-                docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                docker push ${IMAGE_NAME}:latest
+                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                    docker push ${IMAGE_NAME}:latest
                 """
             }
         }
 
         stage('Deploy') {
-
             steps {
 
-                sshagent(credentials: ['server-credentials']) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'server-credentials',
+                        usernameVariable: 'SERVER_USER',
+                        passwordVariable: 'SERVER_PASS'
+                    )
+                ]) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no root@${DEPLOY_SERVER} '
+                    sshpass -p "$SERVER_PASS" ssh \
+                    -o StrictHostKeyChecking=no \
+                    $SERVER_USER@${DEPLOY_SERVER} '
 
                     docker pull ${IMAGE_NAME}:${IMAGE_TAG}
 
@@ -107,6 +112,8 @@ pipeline {
                     --restart unless-stopped \
                     -p 8080:8080 \
                     ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    docker ps
 
                     '
                     """
