@@ -27,7 +27,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                url: 'https://github.com/shubhamtalvekar/hello-jenkins.git'
+                url: 'https://github.com/Shubham-Talvekar/java-maven-app.git'
             }
         }
 
