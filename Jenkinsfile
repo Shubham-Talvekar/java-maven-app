@@ -1,29 +1,28 @@
 pipeline {
+
     agent any
 
     parameters {
-
-        choice(
+        string(
             name: 'VERSION',
-            choices: ['1.1.0', '1.2.0', '1.3.0'],
+            defaultValue: '1.0.0',
             description: 'Application Version'
-        )
-
-        booleanParam(
-            name: 'executeTests',
-            defaultValue: true,
-            description: 'Run Unit Tests'
         )
     }
 
     tools {
         maven 'Maven-3.9'
-        jdk 'JDK-17'
     }
 
     environment {
-        IMAGE_NAME = 'shubhamtalvekar/java-maven-app'
+
+        IMAGE_NAME = "shubhamtalvekar/java-maven-app"
         IMAGE_TAG  = "${BUILD_NUMBER}-${params.VERSION}"
+
+        DOCKERHUB_CREDENTIALS = "dockerhub-creds"
+        SSH_CREDENTIALS       = "server-ssh-creds"
+
+        DEPLOY_SERVER = "192.168.13.151"
     }
 
     stages {
@@ -31,36 +30,19 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/Shubham-Talvekar/java-maven-app.git'
+                    url: 'https://github.com/shubhamtalvekar/hello-jenkins.git'
             }
         }
 
         stage('Build') {
             steps {
-
-                echo "Building version ${params.VERSION}"
-
-                sh '''
-                    mvn clean package -DskipTests
-                '''
+                sh 'mvn clean package'
             }
         }
 
         stage('Test') {
-
-            when {
-                expression {
-                    return params.executeTests
-                }
-            }
-
             steps {
-
-                echo "Running Tests..."
-
-                sh '''
-                    mvn test
-                '''
+                sh 'mvn test'
             }
         }
 
@@ -72,53 +54,66 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-
-                sh '''
-                    docker build \
-                    -t $IMAGE_NAME:$IMAGE_TAG \
-                    .
-                '''
+                sh """
+                   docker build \
+                   -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                   -t ${IMAGE_NAME}:latest .
+                """
             }
         }
 
         stage('Docker Hub Login') {
-
             steps {
-
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
+                        credentialsId: "${DOCKERHUB_CREDENTIALS}",
                         usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASSWORD'
+                        passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
 
                     sh '''
-                        echo "$DOCKER_PASSWORD" | docker login \
-                        -u "$DOCKER_USER" \
-                        --password-stdin
+                    echo "$DOCKER_PASS" | docker login \
+                    -u "$DOCKER_USER" \
+                    --password-stdin
                     '''
                 }
             }
         }
 
         stage('Push Docker Image') {
+            steps {
+                sh """
+                   docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                   docker push ${IMAGE_NAME}:latest
+                """
+            }
+        }
+
+        stage('Deploy') {
 
             steps {
 
-                sh '''
-                    docker push $IMAGE_NAME:$IMAGE_TAG
-                '''
+                sshagent(credentials: ['server-ssh-creds']) {
 
-                sh '''
-                    docker tag \
-                    $IMAGE_NAME:$IMAGE_TAG \
-                    $IMAGE_NAME:latest
-                '''
+                    sh """
+                    ssh -o StrictHostKeyChecking=no root@${DEPLOY_SERVER} '
 
-                sh '''
-                    docker push $IMAGE_NAME:latest
-                '''
+                    docker pull ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    docker stop java-app || true
+
+                    docker rm java-app || true
+
+                    docker run -d \
+                        --name java-app \
+                        --restart unless-stopped \
+                        -p 8080:8080 \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    '
+                    """
+                }
             }
         }
     }
@@ -126,11 +121,11 @@ pipeline {
     post {
 
         success {
-            echo 'Docker image pushed successfully to Docker Hub'
+            echo 'Deployment Successful'
         }
 
         failure {
-            echo 'Pipeline failed'
+            echo 'Deployment Failed'
         }
 
         always {
