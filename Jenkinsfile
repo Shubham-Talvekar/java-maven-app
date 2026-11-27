@@ -87,7 +87,6 @@ pipeline {
 
         stage('Deploy') {
             steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'server-credentials',
@@ -96,27 +95,44 @@ pipeline {
                     )
                 ]) {
 
-                    sh """
-                    sshpass -p "$SERVER_PASS" ssh \
-                    -o StrictHostKeyChecking=no \
-                    $SERVER_USER@${DEPLOY_SERVER} '
+                    sh '''
+                        set -e
 
-                    docker pull ${IMAGE_NAME}:${IMAGE_TAG}
+                        export SSHPASS="$SERVER_PASS"
 
-                    docker stop java-app || true
+                        sshpass -e ssh \
+                            -o StrictHostKeyChecking=no \
+                            "$SERVER_USER@$DEPLOY_SERVER" bash -s <<EOF
 
-                    docker rm java-app || true
+                            set -e
 
-                    docker run -d \
-                    --name java-app \
-                    --restart unless-stopped \
-                    -p 8080:8080 \
-                    ${IMAGE_NAME}:${IMAGE_TAG}
+                            IMAGE="docker.io/${IMAGE_NAME}:${IMAGE_TAG}"
 
-                    docker ps
+                            echo "Pulling image: \$IMAGE"
+                            docker pull "\$IMAGE"
 
-                    '
-                    """
+                            echo "Stopping old container..."
+                            docker stop java-app || true
+
+                            echo "Removing old container..."
+                            docker rm java-app || true
+
+                            echo "Starting new container..."
+                            docker run -d \
+                                --name java-app \
+                                --restart unless-stopped \
+                                -p 8082:8080 \
+                                "\$IMAGE"
+
+                            echo "Verifying deployment..."
+                            test "\$(docker inspect -f '{{.State.Running}}' java-app)" = true
+
+                            echo "Deployment completed successfully!"
+
+                            docker ps --filter name=java-app
+
+EOF
+                    '''
                 }
             }
         }
