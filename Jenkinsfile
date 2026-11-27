@@ -1,3 +1,4 @@
+
 pipeline {
 
     agent any
@@ -100,38 +101,43 @@ pipeline {
 
                         export SSHPASS="$SERVER_PASS"
 
+                        IMAGE="docker.io/${IMAGE_NAME}:${IMAGE_TAG}"
+
+                        echo "Deploying image: $IMAGE"
+
                         sshpass -e ssh \
                             -o StrictHostKeyChecking=no \
-                            "$SERVER_USER@$DEPLOY_SERVER" bash -s <<EOF
+                            "$SERVER_USER@$DEPLOY_SERVER" \
+                            "bash -s -- '$IMAGE'" <<'REMOTE'
 
-                            set -e
+set -e
 
-                            IMAGE="docker.io/${IMAGE_NAME}:${IMAGE_TAG}"
+IMAGE="$1"
 
-                            echo "Pulling image: \$IMAGE"
-                            docker pull "\$IMAGE"
+echo "Pulling image: $IMAGE"
+docker pull "$IMAGE"
 
-                            echo "Stopping old container..."
-                            docker stop java-app || true
+echo "Stopping old container..."
+docker stop java-app || true
 
-                            echo "Removing old container..."
-                            docker rm java-app || true
+echo "Removing old container..."
+docker rm java-app || true
 
-                            echo "Starting new container..."
-                            docker run -d \
-                                --name java-app \
-                                --restart unless-stopped \
-                                -p 8082:8080 \
-                                "\$IMAGE"
+echo "Starting new container..."
+docker run -d \
+    --name java-app \
+    --restart unless-stopped \
+    -p 8082:8080 \
+    "$IMAGE"
 
-                            echo "Verifying deployment..."
-                            test "\$(docker inspect -f '{{.State.Running}}' java-app)" = true
+echo "Verifying deployment..."
+test "$(docker inspect -f '{{.State.Running}}' java-app)" = true
 
-                            echo "Deployment completed successfully!"
+echo "Deployment completed successfully!"
 
-                            docker ps --filter name=java-app
+docker ps --filter name=java-app
 
-EOF
+REMOTE
                     '''
                 }
             }
