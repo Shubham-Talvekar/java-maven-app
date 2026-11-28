@@ -15,6 +15,10 @@ pipeline {
         maven 'Maven-3.9'
     }
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     environment {
         IMAGE_NAME = 'shubhamtalvekar/java-maven-app'
         IMAGE_TAG = "${BUILD_NUMBER}-${params.VERSION}"
@@ -87,7 +91,9 @@ pipeline {
         }
 
         stage('Deploy') {
+
             steps {
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'server-credentials',
@@ -101,41 +107,105 @@ pipeline {
 
                         export SSHPASS="$SERVER_PASS"
 
-                        IMAGE="docker.io/${IMAGE_NAME}:${IMAGE_TAG}"
+                        echo "Copying Docker Compose file..."
 
-                        echo "Deploying image: $IMAGE"
+                        sshpass -e scp \
+                            -o StrictHostKeyChecking=no \
+                            docker-compose.yml \
+                            "$SERVER_USER@$DEPLOY_SERVER:/opt/shopkart/"
+
+                        echo "Connecting to deployment server..."
 
                         sshpass -e ssh \
                             -o StrictHostKeyChecking=no \
                             "$SERVER_USER@$DEPLOY_SERVER" \
-                            "bash -s -- '$IMAGE'" <<'REMOTE'
+                            "bash -s -- '$IMAGE_TAG'" <<'REMOTE'
 
 set -e
 
-IMAGE="$1"
+cd /opt/shopkart
 
-echo "Pulling image: $IMAGE"
-docker pull "$IMAGE"
+export IMAGE_TAG="$1"
 
-echo "Stopping old container..."
-docker stop java-app || true
+echo "Application image version: $IMAGE_TAG"
 
-echo "Removing old container..."
-docker rm java-app || true
+echo "Checking Docker Compose availability..."
 
-echo "Starting new container..."
-docker run -d \
-    --name java-app \
-    --restart unless-stopped \
-    -p 8082:8080 \
-    "$IMAGE"
+if docker compose version >/dev/null 2>&1; then
+    compose() {
+        docker compose -p shopkart "$@"
+    }
+elif podman compose version >/dev/null 2>&1; then
+    compose() {
+        podman compose -p shopkart "$@"
+    }
+else
+    echo "ERROR: Docker Compose is not available"
+    exit 1
+fi
 
-echo "Verifying deployment..."
-test "$(docker inspect -f '{{.State.Running}}' java-app)" = true
+echo "Validating Docker Compose configuration..."
 
-echo "Deployment completed successfully!"
+compose config --quiet
 
-docker ps --filter name=java-app
+echo "Pulling container images..."
+
+compose pull
+
+echo "Checking existing Java container..."
+
+if docker inspect java-app >/dev/null 2>&1; then
+
+    PROJECT=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' java-app)
+
+    if [ "$PROJECT" != "shopkart" ]; then
+
+        echo "Removing old standalone Java container..."
+
+        docker stop java-app
+        docker rm java-app
+
+    fi
+
+fi
+
+echo "Starting Java application and MySQL database..."
+
+compose up -d
+
+echo "Checking container status..."
+
+compose ps
+
+echo "Verifying application and database connectivity..."
+
+for i in $(seq 1 60); do
+
+    if curl --noproxy '*' \
+        --connect-timeout 3 \
+        --max-time 5 \
+        -fsS \
+        http://127.0.0.1:8082/api/products >/dev/null; then
+
+        echo "Application successfully deployed!"
+        echo "Database connectivity verified!"
+        echo "Website: http://192.168.13.151:8082/"
+
+        exit 0
+
+    fi
+
+    echo "Waiting for application startup... Attempt $i/60"
+
+    sleep 5
+
+done
+
+echo "ERROR: Application health verification failed"
+
+compose logs --tail=50
+
+exit 1
 
 REMOTE
                     '''
@@ -147,7 +217,7 @@ REMOTE
     post {
 
         success {
-            echo 'Application Successfully Deployed'
+            echo 'Application and Database Successfully Deployed'
         }
 
         failure {
@@ -155,6 +225,7 @@ REMOTE
         }
 
         always {
+            sh 'docker logout || true'
             cleanWs()
         }
     }
